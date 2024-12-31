@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Server Not Found - Memory Game</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            padding: 50px; 
+        }
+        h1 { 
+            color: #FF0000; 
+        }
+        .game-container {
+            width: 75%;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(4, 150px);
+            border: 0.5px solid #848484;
+            border-radius: 10px;
+            justify-content: center;
+        }
+        .card {
+            width: 100px;
+            height: 100px;
+            background-color: #53c8e2;
+            border: 1px solid #54c8eb;
+            border-radius: 5px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            margin-left: 15px;
+            margin-top: 40px;
+            margin-bottom: 40px;
+        }
+        .card.clicked {
+            background-color: #3498db;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <h1>Server Not Found</h1>
+    <p>The server is currently unreachable. Play a game while you wait!</p>
+
+    <div class="game-container" id="game-container"></div>
+
+    <script>
+        // Define the game cards
+        const cards = ['🌟', '🎉', '🎈', '🎁', '🍰', '🍦', '🍭', '🍩'];
+
+        let cardPairs = cards.concat(cards); // Duplicate cards for matching
+        let shuffledCards = shuffle(cardPairs); // Shuffle the cards
+
+        let flippedCards = [];
+        let matchedCards = [];
+
+        // Function to shuffle array
+        function shuffle(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        // Function to handle card click
+        function handleCardClick(index) {
+            if (flippedCards.length < 2 && !flippedCards.includes(index) && !matchedCards.includes(index)) {
+                flippedCards.push(index);
+                displayCards();
+                
+                if (flippedCards.length === 2) {
+                    setTimeout(checkMatch, 1000);
+                }
+            }
+        }
+
+        // Function to check if flipped cards match
+        function checkMatch() {
+            const [card1, card2] = flippedCards;
+            if (shuffledCards[card1] === shuffledCards[card2]) {
+                matchedCards.push(card1, card2);
+            }
+            flippedCards = [];
+            displayCards();
+
+            if (matchedCards.length === cards.length * 2) {
+                setTimeout(() => {
+                    alert('Congratulations! You matched all pairs!');
+                    window.location.reload();
+                }, 500);
+            }
+        }
+
+        // Function to display cards
+        function displayCards() {
+            const gameContainer = document.getElementById('game-container');
+            gameContainer.innerHTML = '';
+
+            shuffledCards.forEach((card, index) => {
+                const div = document.createElement('div');
+                div.classList.add('card');
+                if (flippedCards.includes(index) || matchedCards.includes(index)) {
+                    div.textContent = card;
+                    div.classList.add('clicked');
+                } else {
+                    div.addEventListener('click', () => handleCardClick(index));
+                }
+                gameContainer.appendChild(div);
+            });
+        }
+
+        // Initial display of cards
+        displayCards();
+    </script>
+</body>
+</html>

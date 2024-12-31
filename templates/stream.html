@@ -1,0 +1,98 @@
+<!-- templates/stream.html -->
+{% extends "base.html" %}
+{% block title %}Streaming {{ filename }} - File Hosting{% endblock %}
+
+{% block extra_head %}
+<link href="https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.2/plyr.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold truncate">{{ filename }}</h2>
+        <a href="javascript:history.back();" class="text-blue-600 hover:text-blue-900">Go Back</a>
+        <a href="{{ url_for('index') }}" class="text-blue-500 hover:text-blue-700 transition duration-300">
+            Back to Home
+        </a>
+    </div>
+    
+    <div class="aspect-w-16 aspect-h-9 bg-black rounded-lg overflow-hidden">
+        <video id="player" playsinline controls>
+            <source src="{{ video_url }}" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+
+    <div class="mt-4 text-center">
+        <!-- Add a custom download button -->
+        <button id="downloadBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg">
+            Download Video
+        </button>
+    </div>
+    
+    <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-gray-50 p-4 rounded-lg">
+            <h3 class="text-lg font-semibold mb-2">File Details</h3>
+            <dl class="space-y-2">
+                <div class="flex justify-between">
+                    <dt class="text-gray-500">Size:</dt>
+                    <dd class="text-gray-900">{{ '{:.2f}'.format(file_size / (1024*1024)) }} MB</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-500">Type:</dt>
+                    <dd class="text-gray-900">{{ file_type }}</dd>
+                </div>
+            </dl>
+        </div>
+        
+        <div class="bg-gray-50 p-4 rounded-lg">
+            <h3 class="text-lg font-semibold mb-2">Playback Options</h3>
+            <div class="space-y-2">
+                <button onclick="document.getElementById('player').playbackRate = 1.0" 
+                        class="w-full text-left px-3 py-2 rounded bg-white hover:bg-gray-100 transition duration-300">
+                    Normal Speed (1x)
+                </button>
+                <button onclick="document.getElementById('player').playbackRate = 1.5" 
+                        class="w-full text-left px-3 py-2 rounded bg-white hover:bg-gray-100 transition duration-300">
+                    Fast (1.5x)
+                </button>
+                <button onclick="document.getElementById('player').playbackRate = 2.0" 
+                        class="w-full text-left px-3 py-2 rounded bg-white hover:bg-gray-100 transition duration-300">
+                    Very Fast (2x)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plyr/3.7.2/plyr.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const player = new Plyr('#player', {
+            controls: [
+                'play-large',
+                'play',
+                'progress',
+                'current-time',
+                'duration',
+                'mute',
+                'volume',
+                'settings',
+                'fullscreen'
+            ],
+            settings: ['quality', 'speed'],
+            speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] }
+        });
+
+        document.getElementById('downloadBtn').addEventListener('click', function () {
+            const videoUrl = '{{ url_for('download_file_view', filepath=request.path[1:]) }}';
+            const link = document.createElement('a');
+            link.href = videoUrl;
+            link.download = '{{ filename }}';
+            link.click();
+        });
+    });
+</script>
+{% endblock %}

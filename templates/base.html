@@ -1,0 +1,308 @@
+<!-- templates/base.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}File Hosting{% endblock %}</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex justify-between">
+                <div class="flex space-x-7">
+                    <a href="{{ url_for('index') }}" class="flex items-center py-4 px-2">
+                        <span class="font-semibold text-gray-500 text-lg">File Hosting</span>
+                    </a>
+                </div>
+                {% if current_user.is_authenticated %}
+                <div class="flex items-center space-x-3">
+                    <span class="text-gray-500">{{ current_user.email }}</span>
+                    <a href="{{ url_for('logout') }}" class="py-2 px-4 bg-red-500 text-white rounded hover:bg-red-600 transition duration-300">Logout</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto px-4 py-8">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="{% if category == 'error' %}bg-red-100 border-red-500 text-red-700{% else %}bg-blue-100 border-blue-500 text-blue-700{% endif %} border-l-4 p-4 mb-4 rounded">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        {% block content %}{% endblock %}
+    </div>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+<!-- <script src="../static/script.js"></script> -->
+<script>
+    function updateFileList() {
+        const fileInput = document.getElementById("fileInput");
+        const fileList = document.getElementById("fileList");
+        fileList.innerHTML = ''; 
+
+        Array.from(fileInput.files).forEach((file, index) => {
+            const listItem = document.createElement("div");
+            listItem.classList.add("flex", "items-center", "space-x-2", "mb-2", "file-item");
+
+            const fileName = document.createElement("span");
+            fileName.classList.add("text-sm", "text-gray-700");
+            fileName.textContent = file.name;
+
+            const fileSize = document.createElement("span");
+            fileSize.classList.add("text-sm", "text-gray-700");
+            fileSize.textContent = (file.size/(1024*1024)).toFixed(2) + "MB";
+
+            const removeButton = document.createElement("span");
+            removeButton.classList.add("text-red-500", "text-xs", "border", "border-red-500", "rounded", "w-5", "h-5", "hover:text-red-700", 
+            "flex", "items-center", "justify-center", "cursor-pointer");
+            removeButton.textContent = "X";
+            removeButton.onclick = () => removeFile(index);
+
+            listItem.appendChild(fileName);
+            listItem.appendChild(fileSize);
+            listItem.appendChild(removeButton);
+            fileList.appendChild(listItem);
+        });
+    }
+
+    function removeFile(index) {
+        const fileInput = document.getElementById("fileInput");
+        const dataTransfer = new DataTransfer();
+
+        Array.from(fileInput.files).forEach((file, i) => {
+            if (i !== index) {
+                dataTransfer.items.add(file);
+            }
+        });
+
+        fileInput.files = dataTransfer.files;
+        updateFileList();
+    }
+
+    //
+
+    function deleteFile(filename, subpath) {
+        localStorage.setItem("fileToDelete", filename);
+        localStorage.setItem("fileSubpath", subpath);
+        const deleteModal = document.getElementById('deleteModal');
+        
+        const isFolder = !filename.includes('.');
+        const modalMessage = document.querySelector('#deleteModal .text-gray-500');
+        modalMessage.textContent = `Are you sure you want to delete this ${isFolder ? 'folder and all its contents' : 'file'}? This action cannot be undone.`;
+        
+        deleteModal.classList.remove('hidden');
+    }
+
+    // Confirm delete event handler
+    const deleteConfirmElement = document.getElementById('deleteConfirm');
+    if (deleteConfirmElement) {
+        deleteConfirmElement.addEventListener('click', function() {
+            let fileSubpath = localStorage.getItem("fileSubpath");
+            let fileToDelete = localStorage.getItem("fileToDelete");
+            console.log(fileSubpath, fileToDelete);
+
+            if (fileToDelete && fileSubpath) {
+                if(fileSubpath==='/'){
+                    fileSubpath='Server_baseIndexDirectory';
+                }
+                const deleteUrl = `/delete/${fileSubpath}/${fileToDelete}`;
+                
+                fetch(deleteUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                    credentials: 'same-origin'  // This is important for CSRF token
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.message) {
+                        alert(data.message);
+                    } else {
+                        alert(data.error || "An error occurred.");
+                    }
+                })
+                .catch(error => {
+                    console.error("Error:", error);
+                    //alert("An error occurred while deleting the item.");
+                })
+                .finally(() => {
+                    closeDeleteModal();
+                    window.location.reload();
+                });            
+            }
+        });
+    }
+        
+    function closeDeleteModal() {
+        const deleteModal = document.getElementById('deleteModal');
+        deleteModal.classList.add('hidden');
+        localStorage.setItem("fileToDelete", '');
+        localStorage.setItem("fileSubpath", '');
+    }
+    
+    function openFolderModal() {
+        document.getElementById('folderModal').classList.remove('hidden');
+    }
+    
+    function closeFolderModal() {
+        document.getElementById('folderModal').classList.add('hidden');
+    } 
+
+    document.addEventListener('keydown', function(event) {
+        // Check if Ctrl, Shift, and R are pressed
+        if (event.altKey && event.shiftKey && event.key.toLowerCase() === 'r') {
+            console.log("You found the register button");
+            event.preventDefault();
+            document.getElementById('register').style.display = 'inline';
+        }
+    });
+
+    let sortOrder = {
+        name: true,
+        size: true,
+        modified: true,
+        type: true
+    };
+
+    function sortFiles(column) {
+        const tbody = document.querySelector("tbody.bg-white.divide-y.divide-gray-200");
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        const columnIndex = {
+            name: 0,
+            size: 1,
+            modified: 2,
+            type: 3
+        }[column];
+        
+        sortOrder[column] = !sortOrder[column];
+        
+        rows.sort((a, b) => {
+            const cellA = a.children[columnIndex].innerText.trim();
+            const cellB = b.children[columnIndex].innerText.trim();
+            
+            let comparison = 0;
+    
+            if (column === "size") {
+                const sizeA = parseFloat(cellA) * (cellA.includes("MB") ? 1024 : 1);
+                const sizeB = parseFloat(cellB) * (cellB.includes("MB") ? 1024 : 1);
+                comparison = sizeA - sizeB;
+            } else if (column === "modified") {
+                const dateA = new Date(cellA);
+                const dateB = new Date(cellB);
+                comparison = dateA - dateB;
+            } else {
+                comparison = cellA.localeCompare(cellB, undefined, { numeric: true });
+            }
+            
+            return sortOrder[column] ? comparison : -comparison;
+        });
+    
+        tbody.innerHTML = "";
+        rows.forEach(row => tbody.appendChild(row));
+    }
+    
+    async function uploadChunk(fileChunk, fileName, chunkIndex, totalChunks, currentPath, url) {
+        const formData = new FormData();
+        formData.set("file", fileChunk, fileName);
+        formData.set("chunkIndex", chunkIndex);
+        formData.set("totalChunks", totalChunks);
+        formData.set("currentPath", currentPath);
+
+        try {
+            const response = await fetch(url, {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to upload chunk ${chunkIndex + 1}`);
+            }
+
+            const responseData = await response.json();
+            console.log(`Chunk ${chunkIndex + 1} of ${fileName} uploaded successfully.`, responseData);
+            return true;
+        } catch (error) {
+            console.error(error.message);
+            return false;
+        }
+    }
+
+    async function uploadFileInChunks(file, url, chunkSize = 500 * 1024 * 1024) {
+        const totalChunks = Math.ceil(file.size / chunkSize);
+        const currentPath = document.getElementById("upload_currentPath").value;
+
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+            const start = chunkIndex * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const fileChunk = file.slice(start, end);
+
+            let success = false;
+            let retries = 0;
+
+            // Retry logic for failed chunks
+            while (!success && retries < 3) {
+                success = await uploadChunk(fileChunk, file.name, chunkIndex, totalChunks, currentPath, url);
+                if (!success) {
+                    retries++;
+                    console.log(`Retrying chunk ${chunkIndex + 1} of ${file.name} (Attempt ${retries + 1})...`);
+                }
+            }
+
+            if (!success) {
+                alert(`Failed to upload chunk ${chunkIndex + 1} of ${file.name} after 3 attempts.`);
+                return false;
+            }
+        }
+
+        console.log(`${file.name} uploaded successfully.`);
+        return true;
+    }
+
+    async function uploadFileList() {
+        const fileInput = document.getElementById("fileInput");
+        const fileListDiv = document.getElementById("fileList");
+        fileListDiv.innerHTML = "";
+
+        const files = Array.from(fileInput.files);
+
+        for (const file of files) {
+            const fileDiv = document.createElement("div");
+            fileDiv.classList.add("text-sm", "text-gray-700");
+            fileDiv.textContent = `Uploading: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+            fileListDiv.appendChild(fileDiv);
+
+            const success = await uploadFileInChunks(file, "{{ url_for('upload_file') }}");
+            if (!success) {
+                alert(`Error uploading ${file.name}.`);
+                return;
+            }
+        }
+
+        alert("All files uploaded successfully!");
+        window.location.reload();
+    }
+
+    function startUpload(event) {
+        event.preventDefault();
+        uploadFileList();    }
+    
+</script>
+</html>

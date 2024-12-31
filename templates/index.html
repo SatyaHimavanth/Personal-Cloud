@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}My Files - File Hosting{% endblock %}
+
+{% block content %}
+<div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+    <div class="mb-6">
+        <h2 class="text-2xl font-bold mb-4">Upload File</h2>
+        
+        <form id="uploadForm" method="post" enctype="multipart/form-data" class="space-y-4" onsubmit="startUpload(event)">
+            <div class="flex flex-col md:flex-row md:items-center md:space-x-4">
+                <input type="file" name="files" id="fileInput" class="block w-full text-sm text-gray-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700
+                        hover:file:bg-blue-100
+                        cursor-pointer" multiple required
+                    onchange="updateFileList()">
+                <input type="hidden" id="upload_currentPath" name="currentPath" value="{{ request.path }}">
+                <button type="submit" id="uploadBtn"
+                    class="mt-2 md:mt-0 w-full md:w-auto bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded transition duration-300">
+                    Upload
+                </button>
+            </div>
+            <div id="fileList" class="mt-4">
+                <!-- The file list will appear here -->
+            </div>
+            <p class="text-sm text-gray-500">Maximum file size: < 5 GB. Supported formats: all basic file types</p>
+        </form>
+        <button onclick="openFolderModal()" 
+            class="mt-4 w-full md:w-auto bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-6 rounded transition duration-300">
+            Create Folder
+        </button>
+    </div>
+
+    <!-- Folder Creation Modal -->
+    <div id="folderModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Create New Folder</h3>
+                <form id="createFolderForm" action="{{ url_for('create_folder') }}" method="post">
+                    <div class="mt-4">
+                        <label for="folderName" class="block text-sm font-medium text-gray-700">Folder Name</label>
+                        <input type="text" name="folderName" id="folderName" required
+                               class="mt-1 p-2 block w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <input type="hidden" id="upload_currentPath" name="currentPath" value="{{ request.path }}">
+                    </div>
+                    <div class="mt-6 flex justify-center space-x-4">
+                        <button type="submit"
+                                class="px-4 py-2 bg-green-500 text-white font-medium rounded-md shadow-sm hover:bg-green-600 focus:outline-none">
+                            Create
+                        </button>
+                        <button type="button" onclick="closeFolderModal()"
+                                class="px-4 py-2 bg-gray-100 text-gray-700 font-medium rounded-md shadow-sm hover:bg-gray-200 focus:outline-none">
+                            Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <h2 class="text-2xl font-bold mb-4">Your Files</h2>
+
+        <div class="mb-4">
+            <input type="text" id="searchBar" oninput="showSuggestions(this.value)" 
+                   placeholder="Search files..." 
+                   class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            
+            <ul id="suggestions" class="absolute z-10 bg-white border border-gray-200 rounded-md mt-1 hidden w-full"></ul>
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="min-w-full table-auto">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <a href="#" onclick="sortFiles('name')">Name</a>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <a href="#" onclick="sortFiles('size')">Size</a>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <a href="#" onclick="sortFiles('modified')">Modified</a>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <a href="#" onclick="sortFiles('type')">Type</a>
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for file in files %}
+                    <tr id="file-{{ file.name | replace(' ', '-') | replace('.', '-') }}" class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="flex items-center">
+                                <span class="text-sm font-medium text-gray-900">{{ file.name }}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="text-sm text-gray-500">
+                                {% if '.' not in file.name %} <!-- If it's a folder -->
+                                    -
+                                {% else %}
+                                    {{ '{:.2f}'.format(file.size / (1024 if file.size < 1024*1024 else 1024*1024)) }} {{ 'KB' if file.size < 1024*1024 else 'MB' }}
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="text-sm text-gray-500">{{ file.modified.strftime('%Y-%m-%d %H:%M') }}</span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="text-sm text-gray-500">
+                                {% if '.' not in file.name %} <!-- If it's a folder -->
+                                    Folder
+                                {% else %}
+                                    {{ file.name.split('.')[-1].upper() }}
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="flex space-x-3">
+                                {% set relative_path = '/'.join(file.path.split("/")[2:]) %}
+                                {% if file.name.lower().endswith(('.mp4', '.mkv')) %}
+                                    <a href="{{ url_for('stream_video', filepath=relative_path) }}" 
+                                       class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
+                                {% elif file.name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.svg', '.ico')) %}
+                                    <a href="{{ url_for('view_image', filepath=relative_path) }}" 
+                                       class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
+                                {% elif file.name.lower().endswith(('.mp3', '.wav', '.ogg')) %}
+                                    <a href="{{ url_for('play_audio', filepath=relative_path) }}" 
+                                       class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
+                                {% elif file.name.lower().endswith(('.pdf')) %}
+                                    <a href="{{ url_for('view_pdf', filepath=relative_path) }}" 
+                                        class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
+                                {% elif '.' not in file.name %}
+                                    <a href="{{ url_for('show_directory', path=relative_path) }}" 
+                                       class="text-blue-600 hover:text-blue-900 text-sm font-medium">Open</a>
+                                {% else %}
+                                    <a href="{{ url_for('download_file', filepath=relative_path) }}" 
+                                       class="text-blue-600 hover:text-blue-900 text-sm font-medium" download>Download</a>
+                                {% endif %}
+                                <button onclick="deleteFile('{{ file.name }}', '{{ request.path }}')" 
+                                        class="text-red-600 hover:text-red-900 text-sm font-medium">Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not files %}
+            <div class="text-center py-8">
+                <p class="text-gray-500">No files uploaded yet.</p>
+                <p class="text-sm text-gray-400 mt-2">Upload your first file using the form above.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3 text-center">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">Delete File</h3>
+            <div class="mt-2 px-7 py-3">
+                <p class="text-sm text-gray-500">
+                    Are you sure you want to delete this file? This action cannot be undone.
+                </p>
+            </div>
+            <div class="items-center px-4 py-3">
+                <button id="deleteConfirm"
+                        class="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300">
+                    Delete
+                </button>
+                <button onclick="closeDeleteModal()"
+                        class="ml-3 px-4 py-2 bg-gray-100 text-gray-700 text-base font-medium rounded-md shadow-sm hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% block extra_scripts %}
+<script>
+    // Function to show suggestions based on input
+    function showSuggestions(query) {
+        const files = {{ files | tojson }};
+    
+        const suggestionsBox = document.getElementById("suggestions");
+        const lowerCaseQuery = query.toLowerCase().trim();
+    
+        // Clear any existing suggestions
+        suggestionsBox.innerHTML = "";
+    
+        // Hide suggestions if the query is empty
+        if (!lowerCaseQuery) {
+            suggestionsBox.classList.add("hidden");
+            return;
+        }
+    
+        // Filter files based on the query
+        const matchingFiles = files.filter(file => file.name.toLowerCase().includes(lowerCaseQuery));
+    
+        // Display matching files as suggestions
+        if (matchingFiles.length > 0) {
+            suggestionsBox.classList.remove("hidden");
+            matchingFiles.forEach(file => {
+                const suggestionItem = document.createElement("li");
+                suggestionItem.textContent = file.name;
+                suggestionItem.classList.add("px-4", "py-2", "hover:bg-gray-100", "cursor-pointer");
+    
+                // On click, scroll to the file and clear suggestions
+                suggestionItem.onclick = () => {
+                    moveToFile(file.name);
+                    suggestionsBox.classList.add("hidden");
+                    document.getElementById("searchBar").value = ""; // Clear search bar
+                };
+    
+                suggestionsBox.appendChild(suggestionItem);
+            });
+        } else {
+            suggestionsBox.classList.add("hidden");
+        }
+    }
+    // Function to scroll to a file's row based on file name
+    function moveToFile(filename) {
+        const fileRowId = `file-${filename.replace(/\s/g, '-').replace(/\./g, '-')}`;
+        const fileRow = document.getElementById(fileRowId);
+    
+        if (fileRow) {
+            fileRow.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+    }
+</script>
+{% endblock %}
+{% endblock %}

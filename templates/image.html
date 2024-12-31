@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Viewing {{ filename }} - File Hosting{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4 text-center">
+    <h2 class="text-2xl font-bold mb-4">{{ filename }}</h2>
+    <img src="{{ image_url }}" alt="{{ filename }}" class="w-[75%] h-[75%] rounded">
+    <div class="flex justify-between items-center mt-4">
+        <a href="javascript:history.back();" class="text-blue-600 hover:text-blue-900">Go Back</a>
+        
+        <button id="downloadBtn"
+            class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700">
+            Download Image
+        </button>
+        
+        <a href="{{ url_for('index') }}" class="text-blue-500 hover:text-blue-700">Back to Home</a>
+    </div>
+</div>
+<script>
+    document.getElementById('downloadBtn').addEventListener('click', function () {
+        const videoUrl = '{{ url_for('download_file_view', filepath=request.path[1:]) }}';
+        const link = document.createElement('a');
+        link.href = videoUrl;
+        link.download = '{{ filename }}';
+        link.click();
+    });
+</script>
+{% endblock %}
