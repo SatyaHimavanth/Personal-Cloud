@@ -228,7 +228,7 @@ def index():
 def show_directory(path):
     user_folder = get_user_folder()
     directory_path = os.path.join(user_folder, path).replace('/', '\\')
-    print("show_directory", path, directory_path)
+    # print("show_directory", path, directory_path)
     if not os.path.exists(directory_path):
         flash("Folder not found.", "error")
     
