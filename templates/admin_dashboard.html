@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Existing Users</h2>
+    <table class="shadow border-collapse border border-gray-800 w-full">
+        <thead>
+            <tr class="bg-gray-100 border-b">
+                <th class="py-2 px-4 text-left text-gray-700">Email</th>
+                <th class="py-2 px-4 text-left text-gray-700">Password</th>
+                <th class="py-2 px-4 text-left text-gray-700">Account Status</th>
+                <th class="py-2 px-4 text-left text-gray-700">FREEZE/ UNFREEZE</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr class="border-b">
+                <td class="py-2 px-4 text-gray-900">{{ user[1] }}</td>
+                <td class="py-2 px-4 text-gray-900" data-password={{ user[2] }}>{{user[2]}}</td>
+                <td class="py-2 px-4 text-gray-900" >{{user[3]}}</td>
+                <td class="py-2 px-4 text-gray-900" >
+                    {% if user[3] == "OK" %}
+                        <form method="POST" action="{{ url_for('freeze_user', user_id=user[0]) }}" style="display:inline;">
+                            <button type="submit" class="shadow appearance-none border rounded bg-red-500 text-white py-2 px-4 mb-3 leading-tight hover:bg-red-600 focus:outline-none focus:shadow-outline">
+                                FREEZE
+                            </button>
+                        </form>
+                    {% elif user[3] == "ADMIN" %}
+                        <button type="submit" class="shadow appearance-none border rounded bg-yellow-500 text-white py-2 px-4 mb-3 leading-tight hover:bg-yellow-600 focus:outline-none focus:shadow-outline">
+                            ADMIN
+                        </button>
+                    {% else %}
+                        <form method="POST" action="{{ url_for('unfreeze_user', user_id=user[0]) }}" style="display:inline;">
+                            <button type="submit" class="shadow appearance-none border rounded bg-green-500 text-white py-2 px-4 mb-3 leading-tight hover:bg-green-600 focus:outline-none focus:shadow-outline">
+                                UNFREEZE
+                            </button>
+                        </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <br><br>
+
+    <h2>Applicant Users</h2>
+    <table class="shadow border-collapse border border-gray-800 w-full">
+        <thead>
+            <tr class="bg-gray-100 border-b">
+                <th class="py-2 px-4 text-left text-gray-700">Email</th>
+                <th class="py-2 px-4 text-left text-gray-700">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for applicant in applicants %}
+            <tr class="border-b">
+                <td class="py-2 px-4 text-gray-900">{{ applicant[1] }}</td>
+                <td class="py-2 px-4">
+                    <form method="POST" action="{{ url_for('accept_user', user_id=applicant[0]) }}" style="display:inline;">
+                        <button type="submit" class="shadow appearance-none border rounded bg-green-500 text-white py-2 px-4 mb-3 leading-tight hover:bg-green-600 focus:outline-none focus:shadow-outline">
+                            Accept
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('reject_user', user_id=applicant[0]) }}" style="display:inline;">
+                        <button type="submit" class="shadow appearance-none border rounded bg-red-500 text-white py-2 px-4 mb-3 leading-tight hover:bg-red-600 focus:outline-none focus:shadow-outline">
+                            Reject
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

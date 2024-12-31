@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from functools import wraps
 import os
 import sqlite3
 import secrets
@@ -10,6 +9,13 @@ from datetime import datetime
 import mimetypes
 import re
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+# Admin cred
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "securepassword123")
+
 
 def get_public_ip():
     import requests
@@ -42,7 +48,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024  # 10 GB max file size
 ALLOWED_EXTENSIONS = {'exe', 'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mkv', 'html', 'mp3', 'wav', 'ogg', 'webm', 'webp', 'csv', 'json', 'xml', 'sql', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'log', 'md', 'rst', 'tex', 'bib', 'docx', 'xlsx', 'xls', 'pptx', 'ppt', 'odt', 'ods', 'odp', 'txt', 'csv', 'json', 'xml', 'sql', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'log', 'md', 'rst', 'tex', 'bib', 'docx', 'xlsx', 'xls', 'pptx', 'ppt', 'odt', 'ods', 'odp'}
 # 1 GB = 1,073,741,824 bytes
-MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024  # 1 GB in bytes
+
 # Initialize Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -57,10 +63,24 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
+            base_password TEXT NOT NULL,
+            account_status TEXT NOT NULL
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS applied_users (
+            rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
             base_password TEXT NOT NULL
         )
     ''')
-    conn.commit()
+    c.execute('SELECT COUNT(*) FROM users WHERE email = ?', (ADMIN_EMAIL,))
+    if c.fetchone()[0] == 0:
+        c.execute('INSERT INTO users (email, password, base_password, account_status) VALUES (?, ?, ?, ?)', 
+                  (ADMIN_EMAIL, generate_password_hash(ADMIN_PASSWORD), ADMIN_PASSWORD, "ADMIN"))
+        conn.commit()
+        
     conn.close()
     
 def get_chunk_size(file_size):
@@ -101,19 +121,92 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Routes
-# @app.route('/available_users', methods=['GET'])
-# def available_users():
-#     conn = sqlite3.connect('database.db')
-#     c = conn.cursor()
-#     c.execute('SELECT id, email, password, base_password FROM users')
-#     rows = c.fetchall()
-#     users = [
-#         {'id': row[0], 'email': row[1], 'password': row[2], 'base_password': row[3]}
-#         for row in rows
-#     ]
-#     conn.close()
-#     return jsonify(users)
+@app.route('/admin_dashboard')
+@login_required
+def admin_dashboard():
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('SELECT id, email, base_password, account_status FROM users')
+    users = c.fetchall()
+    c.execute('SELECT rowid, email FROM applied_users')
+    applicants = c.fetchall()
+    conn.close()
+    return render_template('admin_dashboard.html', users=users, applicants=applicants)
 
+@app.route('/accept_user/<int:user_id>', methods=['POST'])
+@login_required
+def accept_user(user_id):
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM applied_users WHERE rowid = ?', (user_id,))
+    applicant = c.fetchone()
+
+    if applicant:
+        c.execute('INSERT INTO users (email, password, base_password, account_status) VALUES (?, ?, ?, ?)', 
+                  (applicant[1], applicant[2], applicant[3], "OK"))
+        c.execute('DELETE FROM applied_users WHERE rowid = ?', (user_id,))
+        conn.commit()
+    conn.close()
+
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/reject_user/<int:user_id>', methods=['POST'])
+@login_required
+def reject_user(user_id):
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM applied_users WHERE rowid = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/freeze_user/<int:user_id>', methods=['POST'])
+@login_required
+def freeze_user(user_id):
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    user = c.fetchone()
+
+    if user:
+        update_query = '''
+            UPDATE users
+            SET account_status = ?
+            WHERE id = ?
+        '''
+        try:
+            c.execute(update_query, ("FREEZED", user_id))
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error updating user: {e}")
+        finally:
+            conn.close()
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/unfreeze_user/<int:user_id>', methods=['POST'])
+@login_required
+def unfreeze_user(user_id):
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    user = c.fetchone()
+
+    if user:
+        update_query = '''
+            UPDATE users
+            SET account_status = ?
+            WHERE id = ?
+        '''
+        try:
+            c.execute(update_query, ("OK", user_id))
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error updating user: {e}")
+        finally:
+            conn.close()
+    return redirect(url_for('admin_dashboard'))
+    
 @app.route('/')
 @login_required
 def index():
@@ -157,24 +250,33 @@ def show_directory(path):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form['email']
+        email = request.form['email'].lower()
         password = request.form['password']
         
         conn = sqlite3.connect('database.db')
         c = conn.cursor()
-        user = c.execute('SELECT id, email, password FROM users WHERE email = ?', (email,)).fetchone()
+        user = c.execute('SELECT id, email, password, account_status FROM users WHERE email = ?', (email,)).fetchone()
         conn.close()
 
-        if user and check_password_hash(user[2], password):
+        if email==ADMIN_EMAIL and password==ADMIN_PASSWORD:
+            login_user(User(user[0], user[1]))
+            return redirect(url_for('admin_dashboard'))
+        
+        elif user and check_password_hash(user[2], password):
+            if(user[3]=="FREEZED"):
+                flash("You account is freezed please contact admin to unfreeze!!")
+                return redirect(url_for('login'))
+            
             login_user(User(user[0], user[1]))
             return redirect(url_for('index'))
+        
         flash('Invalid email or password')
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        email = request.form['email']
+        email = request.form['email'].lower()
         password = request.form['password']
         
         conn = sqlite3.connect('database.db')
@@ -186,7 +288,12 @@ def register():
             return render_template('register.html')
         
         hashed_password = generate_password_hash(password)
-        c.execute('INSERT INTO users (email, password, base_password) VALUES (?, ?, ?)', (email, hashed_password, password))
+        if c.execute('SELECT rowid FROM applied_users WHERE email = ?', (email,)).fetchone():
+            flash('Email already applied once. Please contact admin!!')
+            conn.close()
+            return render_template('register.html')
+        
+        c.execute('INSERT INTO applied_users (email, password, base_password) VALUES (?, ?, ?)', (email, hashed_password, password))
         conn.commit()
         conn.close()
         
@@ -257,7 +364,6 @@ def create_folder():
 def delete_file(subpath, filename):
     if(subpath=="Server_baseIndexDirectory"):
         subpath=""
-    print(subpath, filename)
     user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
     file_path = os.path.join(user_folder, subpath, filename)
     
@@ -286,7 +392,6 @@ def download_file(filepath):
 def download_file_view(filepath):
     user_folder = get_user_folder()
     filePath = '/'.join(filepath.split('/')[1:])
-    print(filePath)
     return send_from_directory(directory=user_folder, path=filePath, as_attachment=True)
 
 @app.route('/files/<path:filename>', methods=['GET'])
@@ -369,4 +474,4 @@ if __name__ == '__main__':
     print(f"Running on http://{get_public_ip()}:{port}")
     
     serve(app, host='0.0.0.0', port=port)
-    # app.run(host="0.0.0.0", port=5000, debug=False)
+    # app.run(host="0.0.0.0", port=5000, debug=True)

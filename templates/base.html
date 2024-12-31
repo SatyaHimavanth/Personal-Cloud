@@ -164,16 +164,7 @@
     
     function closeFolderModal() {
         document.getElementById('folderModal').classList.add('hidden');
-    } 
-
-    document.addEventListener('keydown', function(event) {
-        // Check if Ctrl, Shift, and R are pressed
-        if (event.altKey && event.shiftKey && event.key.toLowerCase() === 'r') {
-            console.log("You found the register button");
-            event.preventDefault();
-            document.getElementById('register').style.display = 'inline';
-        }
-    });
+    }
 
     let sortOrder = {
         name: true,
