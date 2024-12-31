@@ -101,18 +101,18 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Routes
-@app.route('/available_users', methods=['GET'])
-def available_users():
-    conn = sqlite3.connect('database.db')
-    c = conn.cursor()
-    c.execute('SELECT id, email, password, base_password FROM users')
-    rows = c.fetchall()
-    users = [
-        {'id': row[0], 'email': row[1], 'password': row[2], 'base_password': row[3]}
-        for row in rows
-    ]
-    conn.close()
-    return jsonify(users)
+# @app.route('/available_users', methods=['GET'])
+# def available_users():
+#     conn = sqlite3.connect('database.db')
+#     c = conn.cursor()
+#     c.execute('SELECT id, email, password, base_password FROM users')
+#     rows = c.fetchall()
+#     users = [
+#         {'id': row[0], 'email': row[1], 'password': row[2], 'base_password': row[3]}
+#         for row in rows
+#     ]
+#     conn.close()
+#     return jsonify(users)
 
 @app.route('/')
 @login_required
