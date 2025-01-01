@@ -236,64 +236,78 @@
         }
     }
 
-    async function uploadFileInChunks(file, url, chunkSize = 500 * 1024 * 1024) {
-        const totalChunks = Math.ceil(file.size / chunkSize);
-        const currentPath = document.getElementById("upload_currentPath").value;
-
-        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-            const start = chunkIndex * chunkSize;
-            const end = Math.min(start + chunkSize, file.size);
-            const fileChunk = file.slice(start, end);
-
-            let success = false;
-            let retries = 0;
-
-            // Retry logic for failed chunks
-            while (!success && retries < 3) {
-                success = await uploadChunk(fileChunk, file.name, chunkIndex, totalChunks, currentPath, url);
-                if (!success) {
-                    retries++;
-                    console.log(`Retrying chunk ${chunkIndex + 1} of ${file.name} (Attempt ${retries + 1})...`);
-                }
-            }
-
-            if (!success) {
-                alert(`Failed to upload chunk ${chunkIndex + 1} of ${file.name} after 3 attempts.`);
-                return false;
-            }
-        }
-
-        console.log(`${file.name} uploaded successfully.`);
-        return true;
-    }
-
+    // 10 MB chunks are uploaded 
     async function uploadFileList() {
         const fileInput = document.getElementById("fileInput");
         const fileListDiv = document.getElementById("fileList");
         fileListDiv.innerHTML = "";
-
+    
         const files = Array.from(fileInput.files);
-
+    
         for (const file of files) {
             const fileDiv = document.createElement("div");
             fileDiv.classList.add("text-sm", "text-gray-700");
-            fileDiv.textContent = `Uploading: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+    
+            // Truncate file name to 20 characters
+            const truncatedName = file.name.length > 20 ? file.name.slice(0, 20) + "..." : file.name;
+    
+            fileDiv.innerHTML = `Uploading: ${truncatedName} (${(file.size / 1024 / 1024).toFixed(2)} MB) 
+                <span style="color: green;">(0%)</span>`;
+    
             fileListDiv.appendChild(fileDiv);
-
-            const success = await uploadFileInChunks(file, "{{ url_for('upload_file') }}");
+    
+            const percentageSpan = fileDiv.querySelector("span"); // Get the span for updates
+    
+            const success = await uploadFileInChunks(file, "{{ url_for('upload_file') }}", (progress) => {
+                percentageSpan.textContent = `(${progress}%)`;
+            });
+    
             if (!success) {
                 alert(`Error uploading ${file.name}.`);
                 return;
             }
         }
-
+    
         alert("All files uploaded successfully!");
         window.location.reload();
     }
-
+    
+    async function uploadFileInChunks(file, url, onProgress, chunkSize = 5 * 1024 * 1024) {
+        const totalChunks = Math.ceil(file.size / chunkSize);
+        const currentPath = document.getElementById("upload_currentPath").value;
+    
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+            const start = chunkIndex * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const fileChunk = file.slice(start, end);
+    
+            let success = false;
+            let retries = 0;
+    
+            while (!success && retries < 3) {
+                success = await uploadChunk(fileChunk, file.name, chunkIndex, totalChunks, currentPath, url);
+                if (!success) {
+                    retries++;
+                }
+            }
+    
+            if (!success) {
+                alert(`Failed to upload chunk ${chunkIndex + 1} of ${file.name} after 3 attempts.`);
+                return false;
+            }
+    
+            const progress = Math.round(((chunkIndex + 1) / totalChunks) * 100);
+            onProgress(progress);
+        }
+    
+        console.log(`${file.name} uploaded successfully.`);
+        return true;
+    }
+    
     function startUpload(event) {
         event.preventDefault();
-        uploadFileList();    }
+        uploadFileList();    
+    }
     
 </script>
 </html>
