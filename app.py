@@ -465,7 +465,7 @@ if __name__ == '__main__':
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     from waitress import serve
-    port = 5000
+    port = 8080
     print("Hosting in current system use below address")
     print(f"Running on http://127.0.0.1:{port} \n")
     print("Hosting locally use below address")
