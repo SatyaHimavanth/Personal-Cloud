@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import sqlite3
 import secrets
@@ -9,9 +10,10 @@ from datetime import datetime
 import mimetypes
 import re
 from datetime import datetime
+from send2trash import send2trash
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=".env")
 # Admin cred
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "securepassword123")
@@ -68,6 +70,18 @@ def init_db():
         )
     ''')
     c.execute('''
+        CREATE TABLE IF NOT EXISTS shared_files (
+            shared_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_mail TEXT NOT NULL,
+            from_id INTEGER NOT NULL,
+            to_mail TEXT NOT NULL,
+            to_id INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            shared_type TEXT NOT NULL,
+            expire_date TEXT NOT NULL
+        )
+    ''') 
+    c.execute('''
         CREATE TABLE IF NOT EXISTS applied_users (
             rowid INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
@@ -80,8 +94,37 @@ def init_db():
         c.execute('INSERT INTO users (email, password, base_password, account_status) VALUES (?, ?, ?, ?)', 
                   (ADMIN_EMAIL, generate_password_hash(ADMIN_PASSWORD), ADMIN_PASSWORD, "ADMIN"))
         conn.commit()
-        
+    else:
+        c.execute(
+            'UPDATE users SET password = ?, base_password = ?, account_status = ? WHERE email = ?', 
+            (generate_password_hash(ADMIN_PASSWORD), ADMIN_PASSWORD, "ADMIN", ADMIN_EMAIL)
+        )
+        conn.commit()
+                
     conn.close()
+    
+
+def delete_expired_files():
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    
+    c.execute('''
+        DELETE FROM shared_files
+        WHERE expire_date < DATE('now')
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+def start_scheduler():
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(delete_expired_files, 'cron', hour=0, minute=0)
+    scheduler.start()
+
+@app.before_first_request
+def initialize_scheduler():
+    start_scheduler()
+    
     
 def get_chunk_size(file_size):
     """Calculate optimal chunk size based on file size"""
@@ -126,12 +169,14 @@ def allowed_file(filename):
 def admin_dashboard():
     conn = sqlite3.connect('database.db')
     c = conn.cursor()
-    c.execute('SELECT id, email, base_password, account_status FROM users')
+    c.execute('SELECT id, email, base_password, account_status FROM users ORDER BY id')
     users = c.fetchall()
     c.execute('SELECT rowid, email FROM applied_users')
     applicants = c.fetchall()
+    c.execute('SELECT shared_id, from_mail, to_mail, file_path, shared_type, expire_date FROM shared_files')
+    shared_files = c.fetchall() 
     conn.close()
-    return render_template('admin_dashboard.html', users=users, applicants=applicants)
+    return render_template('admin_dashboard.html', users=users, applicants=applicants, shared_files=shared_files)
 
 @app.route('/accept_user/<int:user_id>', methods=['POST'])
 @login_required
@@ -206,11 +251,22 @@ def unfreeze_user(user_id):
         finally:
             conn.close()
     return redirect(url_for('admin_dashboard'))
+
+@app.route('/delete_shared_link/<int:shared_id>', methods=['POST'])
+@login_required
+def delete_shared_link(shared_id):
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM shared_files WHERE shared_id = ?', (shared_id,))
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for('index'))
     
 @app.route('/')
 @login_required
 def index():
-    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+    user_folder = get_user_folder()
     files = []
     if os.path.exists(user_folder):
         for filename in os.listdir(user_folder):
@@ -221,16 +277,51 @@ def index():
                 'size': os.path.getsize(filepath),
                 'modified': datetime.fromtimestamp(os.path.getmtime(filepath))
             })
-    return render_template('index.html', files=files)
+    
+    # Get list of users for sharing
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute("SELECT id, email FROM users WHERE id != ? AND account_status != 'FREEZED'", (current_user.id,))
+    users = c.fetchall()
+    conn.close()
+    
+    return render_template('index.html', files=files, users=users)
+
+@app.route('/shared_files')
+@login_required
+def shared():
+    # Get list of users for sharing
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute("SELECT shared_id, from_id, to_id, file_path, expire_date FROM shared_files WHERE to_id = ? AND expire_date >= date('now')", (current_user.id,))
+    shared_files = c.fetchall()
+    conn.close()
+    
+    files = []
+    for row in shared_files:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], str(row[1]), row[3])
+        if os.path.exists(filepath):
+            files.append({
+                'name': os.path.basename(filepath),
+                'path': filepath.replace('\\', '/'),
+                'size': os.path.getsize(filepath),
+                'modified': datetime.fromtimestamp(os.path.getmtime(filepath)),
+                'shared_id': row[0],
+                'from_id': row[1]
+            })
+    
+    return render_template('index.html', files=files, users=[])
 
 @app.route('/<path:path>', methods=['GET'])
 @login_required
 def show_directory(path):
     user_folder = get_user_folder()
-    directory_path = os.path.join(user_folder, path).replace('/', '\\')
-    # print("show_directory", path, directory_path)
+    directory_path = os.path.join(user_folder, path).replace('\\', '/')
+    # print("show_directory1", path, directory_path)
+    
     if not os.path.exists(directory_path):
         flash("Folder not found.", "error")
+        return redirect(url_for('index'))
     
     files = []
     if os.path.exists(directory_path) and os.path.isdir(directory_path):
@@ -242,10 +333,18 @@ def show_directory(path):
                 'size': os.path.getsize(filepath),
                 'modified': datetime.fromtimestamp(os.path.getmtime(filepath))
             })
-        return render_template('index.html', files=files)
+        
+        # Get list of users for sharing
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute("SELECT id, email FROM users WHERE id != ? AND account_status != 'FREEZED'", (current_user.id,))
+        users = c.fetchall()
+        conn.close()
+        
+        return render_template('index.html', files=files, users=users)
     else:
         flash('Invalid folder name')
-        return f'Error: {path} not found', 404
+        return redirect(url_for('index'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -342,8 +441,9 @@ def upload_file():
 
 
 @app.route('/create_folder', methods=['POST'])
+@login_required
 def create_folder():
-    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+    user_folder = get_user_folder()
     folder_name = request.form['folderName']
     current_path = request.form['currentPath'].replace('/', '\\')[1:]
     folder_path = os.path.join(user_folder, current_path, folder_name)
@@ -364,16 +464,18 @@ def create_folder():
 def delete_file(subpath, filename):
     if(subpath=="Server_baseIndexDirectory"):
         subpath=""
-    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], str(current_user.id))
+    user_folder = get_user_folder()
     file_path = os.path.join(user_folder, subpath, filename)
     
     try:
         if os.path.exists(file_path):
             if os.path.isdir(file_path):
-                import shutil
-                shutil.rmtree(file_path)
+                # import shutil
+                # shutil.rmtree(file_path)
+                send2trash(file_path)
             else:
-                os.remove(file_path)
+                # os.remove(file_path)
+                send2trash(file_path)
             return jsonify({"message": f"{filename} deleted successfully!"}), 200
         else:
             return jsonify({"error": f"{filename} not found!"}), 404
@@ -384,22 +486,82 @@ def delete_file(subpath, filename):
 @app.route('/download/<path:filepath>')
 @login_required
 def download_file(filepath):
-    user_folder = get_user_folder()
-    return send_from_directory(directory=user_folder, path=filepath, as_attachment=True)
+    shared_id = request.args.get('shared_id')
+    from_id = request.args.get('from_id')
+    
+    if shared_id and from_id:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('''SELECT file_path FROM shared_files 
+                    WHERE shared_id = ? AND from_id = ? AND to_id = ? AND expire_date >= date('now')''', 
+                    (shared_id, from_id, current_user.id))
+        shared_file = c.fetchone()
+        conn.close()
+        
+        if shared_file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], str(from_id), shared_file[0])
+            directory = os.path.dirname(file_path)
+            filename = os.path.basename(file_path)
+            return send_from_directory(directory=directory, path=filename, as_attachment=True)
+        else:
+            return "Access denied", 403
+    else:
+        user_folder = get_user_folder()
+        return send_from_directory(directory=user_folder, path=filepath, as_attachment=True)
 
 @app.route('/download_view/<path:filepath>')
 @login_required
 def download_file_view(filepath):
-    user_folder = get_user_folder()
-    filePath = '/'.join(filepath.split('/')[1:])
-    return send_from_directory(directory=user_folder, path=filePath, as_attachment=True)
+    shared_id = request.args.get('shared_id')
+    from_id = request.args.get('from_id')
+    
+    if shared_id and from_id:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('''SELECT file_path FROM shared_files 
+                    WHERE shared_id = ? AND from_id = ? AND to_id = ? AND expire_date >= date('now')''', 
+                    (shared_id, from_id, current_user.id))
+        shared_file = c.fetchone()
+        conn.close()
+        
+        if shared_file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], str(from_id), shared_file[0])
+            return send_from_directory(directory=os.path.join(app.config['UPLOAD_FOLDER'], str(from_id)), path=file_path, as_attachment=True)
+        else:
+            return "Access denied", 403
+    else:
+        user_folder = get_user_folder()
+        filePath = '/'.join(filepath.split('/')[1:])
+        return send_from_directory(directory=user_folder, path=filePath, as_attachment=True)
 
-@app.route('/files/<path:filename>', methods=['GET'])
+@app.route('/files/<path:filename>')
 @login_required
 def serve_file(filename):
-    file_path = os.path.join(get_user_folder(), filename)
+    shared_id = request.args.get('shared_id')
+    from_id = request.args.get('from_id')
+    
+    if shared_id and from_id:
+        # Check if the file is shared with the current user
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('''SELECT file_path FROM shared_files 
+                    WHERE shared_id = ? AND from_id = ? AND to_id = ? AND expire_date >= date('now')''', 
+                    (shared_id, from_id, current_user.id))
+        shared_file = c.fetchone()
+        conn.close()
+        
+        if shared_file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], str(from_id), shared_file[0])
+        else:
+            return "Access denied", 403
+    else:
+        file_path = os.path.join(get_user_folder(), filename)
+    
+    if not os.path.exists(file_path):
+        return "File not found", 404
+        
     filetype = os.path.basename(file_path).split('.')[-1]
-    if(filetype not in {'.mp4', 'mkv'}):
+    if filetype not in {'mp4', 'mkv'}:
         return send_file(file_path, as_attachment=False)
     else:
         file = open(file_path, 'rb')
@@ -431,33 +593,182 @@ def parse_range_header(range_header, file_size):
 
 @app.route('/stream/<path:filepath>')
 def stream_video(filepath):
-    user_folder = get_user_folder()
-    file_path = os.path.join(user_folder, filepath)
+    shared_id = request.args.get('shared_id')
+    from_id = request.args.get('from_id')
+    
+    if shared_id and from_id:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('''SELECT file_path FROM shared_files 
+                    WHERE shared_id = ? AND from_id = ? AND to_id = ? AND expire_date >= date('now')''', 
+                    (shared_id, from_id, current_user.id))
+        shared_file = c.fetchone()
+        conn.close()
+        
+        if shared_file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], str(from_id), shared_file[0])
+        else:
+            return "Access denied", 403
+    else:
+        file_path = os.path.join(get_user_folder(), filepath)
+    
+    if not os.path.exists(file_path):
+        return "File not found", 404
+        
     file_size = os.path.getsize(file_path)
     file_type = mimetypes.guess_type(file_path)[0]
-    return render_template('stream.html', filename=os.path.basename(filepath), video_url=url_for('serve_file', filename=filepath), 
+    
+    return render_template('stream.html', 
+                         filename=os.path.basename(filepath),
+                         video_url=url_for('serve_file', filename=filepath, shared_id=shared_id, from_id=from_id),
                          file_size=file_size,
-                         file_type=file_type)
+                         file_type=file_type,
+                         sharing_link=filepath)
 
 @app.route('/image/<path:filepath>')
 def view_image(filepath):
-    user_folder = get_user_folder()
-    file_path = os.path.join(user_folder, filepath)
-    file_name = os.path.basename(file_path)
-    # return send_file(file_path, as_attachment=False)
-    return render_template('image.html', image_url=url_for('serve_file', filename=filepath), filename=file_name)
+    shared_id = request.args.get('shared_id')
+    from_id = request.args.get('from_id')
+    
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute("SELECT id, email FROM users WHERE id != ?", (current_user.id,))
+    users = c.fetchall()
+    conn.close()
+    
+    if shared_id and from_id:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('''SELECT file_path FROM shared_files 
+                    WHERE shared_id = ? AND from_id = ? AND to_id = ? AND expire_date >= date('now')''', 
+                    (shared_id, from_id, current_user.id))
+        shared_file = c.fetchone()
+        conn.close()
+        
+        if shared_file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], str(from_id), shared_file[0])
+        else:
+            return "Access denied", 403
+    else:
+        file_path = os.path.join(get_user_folder(), filepath)
+    
+    if not os.path.exists(file_path):
+        return "File not found", 404
+        
+    return render_template('image.html',
+                         filename=os.path.basename(filepath),
+                         image_url=url_for('serve_file', filename=filepath, shared_id=shared_id, from_id=from_id),
+                         users=users,
+                         sharing_link=filepath)
 
 @app.route('/audio/<path:filepath>')
 def play_audio(filepath):
-    user_folder = get_user_folder()
-    file_path = os.path.join(user_folder, filepath)
-    return render_template('audio.html', filename=os.path.basename(filepath), audio_url=url_for('serve_file', filename=filepath))
+    shared_id = request.args.get('shared_id')
+    from_id = request.args.get('from_id')
+    
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute("SELECT id, email FROM users WHERE id != ?", (current_user.id,))
+    users = c.fetchall()
+    conn.close()
+    
+    if shared_id and from_id:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('''SELECT file_path FROM shared_files 
+                    WHERE shared_id = ? AND from_id = ? AND to_id = ? AND expire_date >= date('now')''', 
+                    (shared_id, from_id, current_user.id))
+        shared_file = c.fetchone()
+        conn.close()
+        
+        if shared_file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], str(from_id), shared_file[0])
+        else:
+            return "Access denied", 403
+    else:
+        file_path = os.path.join(get_user_folder(), filepath)
+    
+    if not os.path.exists(file_path):
+        return "File not found", 404
+        
+    return render_template('audio.html',
+                         filename=os.path.basename(filepath),
+                         audio_url=url_for('serve_file', filename=filepath, shared_id=shared_id, from_id=from_id),
+                         users=users,
+                         sharing_link=filepath)
 
 @app.route('/pdf/<path:filepath>')
 def view_pdf(filepath):
-    user_folder = get_user_folder()
-    file_path = os.path.join(user_folder, filepath)
-    return render_template('pdf.html', filename=os.path.basename(filepath), file_url=url_for('serve_file', filename=filepath))
+    shared_id = request.args.get('shared_id')
+    from_id = request.args.get('from_id')
+    
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute("SELECT id, email FROM users WHERE id != ?", (current_user.id,))
+    users = c.fetchall()
+    conn.close()
+    
+    if shared_id and from_id:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('''SELECT file_path FROM shared_files 
+                    WHERE shared_id = ? AND from_id = ? AND to_id = ? AND expire_date >= date('now')''', 
+                    (shared_id, from_id, current_user.id))
+        shared_file = c.fetchone()
+        conn.close()
+        
+        if shared_file:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], str(from_id), shared_file[0])
+        else:
+            return "Access denied", 403
+    else:
+        file_path = os.path.join(get_user_folder(), filepath)
+    
+    if not os.path.exists(file_path):
+        return "File not found", 404
+        
+    return render_template('pdf.html',
+                         filename=os.path.basename(filepath),
+                         file_url=url_for('serve_file', filename=filepath, shared_id=shared_id, from_id=from_id),
+                         users=users,
+                         sharing_link=filepath)
+
+
+@app.route('/share_file', methods=['POST'])
+@login_required
+def share_file():
+    try:
+        data = request.get_json()
+        # Extract the file path and shared data
+        file_path = data.get('file_path')
+        users_data = data.get('shared_data')
+
+        print(file_path, users_data)
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        
+        for user in users_data:
+            exists = c.execute('''SELECT shared_id FROM shared_files 
+                         WHERE from_mail = ? AND from_id = ? AND to_mail = ? AND to_id = ? AND file_path = ?''', 
+                         (current_user.email, current_user.id, user["email"], user["id"], file_path,)).fetchone()
+            if exists:
+                # Update sharing record
+                c.execute(
+                    'UPDATE shared_files SET shared_type = ?, expire_date = ? WHERE shared_id = ?', 
+                    ("READ", user["expire_date"], exists[0])
+                )
+            else:
+                # Insert sharing record
+                c.execute('''INSERT INTO shared_files 
+                            (from_mail, from_id, to_mail, to_id, file_path, shared_type, expire_date) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (current_user.email, current_user.id, user["email"], user["id"], file_path, "READ", user["expire_date"]))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({"message": "File shared successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
@@ -465,7 +776,7 @@ if __name__ == '__main__':
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     from waitress import serve
-    port = 8080
+    port = 5000
     print("Hosting in current system use below address")
     print(f"Running on http://127.0.0.1:{port} \n")
     print("Hosting locally use below address")
@@ -473,5 +784,5 @@ if __name__ == '__main__':
     print("Hosting externally use below address")
     print(f"Running on http://{get_public_ip()}:{port}")
     
-    serve(app, host='0.0.0.0', port=port)
-    # app.run(host="0.0.0.0", port=5000, debug=True)
+    # serve(app, host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=5000, debug=True)

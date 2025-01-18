@@ -88,6 +88,9 @@
                             <a href="#" onclick="sortFiles('type')">Type</a>
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        {% if users %}
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Share</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
@@ -123,28 +126,38 @@
                             <div class="flex space-x-3">
                                 {% set relative_path = '/'.join(file.path.split("/")[2:]) %}
                                 {% if file.name.lower().endswith(('.mp4', '.mkv')) %}
-                                    <a href="{{ url_for('stream_video', filepath=relative_path) }}" 
+                                    <a href="{{ url_for('stream_video', filepath=relative_path, shared_id=file.shared_id, from_id=file.from_id) if file.shared_id else url_for('stream_video', filepath=relative_path) }}" 
                                        class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
                                 {% elif file.name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.svg', '.ico')) %}
-                                    <a href="{{ url_for('view_image', filepath=relative_path) }}" 
+                                    <a href="{{ url_for('view_image', filepath=relative_path, shared_id=file.shared_id, from_id=file.from_id) if file.shared_id else url_for('view_image', filepath=relative_path) }}" 
                                        class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
                                 {% elif file.name.lower().endswith(('.mp3', '.wav', '.ogg')) %}
-                                    <a href="{{ url_for('play_audio', filepath=relative_path) }}" 
+                                    <a href="{{ url_for('play_audio', filepath=relative_path, shared_id=file.shared_id, from_id=file.from_id) if file.shared_id else url_for('play_audio', filepath=relative_path) }}" 
                                        class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
                                 {% elif file.name.lower().endswith(('.pdf')) %}
-                                    <a href="{{ url_for('view_pdf', filepath=relative_path) }}" 
+                                    <a href="{{ url_for('view_pdf', filepath=relative_path, shared_id=file.shared_id, from_id=file.from_id) if file.shared_id else url_for('view_pdf', filepath=relative_path) }}" 
                                         class="text-blue-600 hover:text-blue-900 text-sm font-medium">View</a>
                                 {% elif '.' not in file.name %}
                                     <a href="{{ url_for('show_directory', path=relative_path) }}" 
                                        class="text-blue-600 hover:text-blue-900 text-sm font-medium">Open</a>
-                                {% else %}
-                                    <a href="{{ url_for('download_file', filepath=relative_path) }}" 
-                                       class="text-blue-600 hover:text-blue-900 text-sm font-medium" download>Download</a>
                                 {% endif %}
-                                <button onclick="deleteFile('{{ file.name }}', '{{ request.path }}')" 
+
+                                <a href="{{ url_for('download_file', filepath=relative_path, shared_id=file.shared_id, from_id=file.from_id) if file.shared_id else url_for('download_file', filepath=relative_path) }}" 
+                                    class="text-blue-600 hover:text-blue-900 text-sm font-medium" download>Download</a>
+                                
+                                {% if users %}
+                                    <button onclick="deleteFile('{{ file.name }}', '{{ request.path }}')" 
                                         class="text-red-600 hover:text-red-900 text-sm font-medium">Delete</button>
+                                {% endif %}
                             </div>
                         </td>
+
+                        {% if '.' in file.name and users %}
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <button onclick="initializeShareModal('{{ relative_path }}');" 
+                            class="text-purple-600 hover:text-purple-900 text-sm font-medium">Share</button>
+                        </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -182,7 +195,35 @@
         </div>
     </div>
 </div>
+
+<!-- Modal for sharing -->
+<div id="shareModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex justify-center items-center">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full">
+        <h3 class="text-lg font-semibold mb-4">Share with Others</h3>
+        
+        <div class="mb-4">
+            <label for="emailSearch" class="block text-sm text-gray-700">Select Email</label>
+            <input list="emailList" id="emailSearch" name="email" class="mt-1 p-2 border rounded w-full" placeholder="Search Email" />
+            <datalist id="emailList">
+                {% for user in users %}
+                    <option id="{{user[0]}}" value="{{user[1]}}">
+                {% endfor %}
+            </datalist>
+        </div>
+
+        <div id="selectedEmails" class="mb-4">
+            <!-- List of selected emails will appear here -->
+        </div>
+
+        <div class="flex justify-between mt-4">
+            <button id="cancelBtn" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">Cancel</button>
+            <button id="shareFinalBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700">Share</button>
+        </div>
+    </div>
+</div>
+
 {% block extra_scripts %}
+
 <script>
     // Function to show suggestions based on input
     function showSuggestions(query) {
@@ -233,6 +274,108 @@
             fileRow.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }
+
+    // Get modal elements
+    const shareModal = document.getElementById("shareModal");
+    const cancelBtn = document.getElementById("cancelBtn");
+    const shareFinalBtn = document.getElementById("shareFinalBtn");
+    const emailSearch = document.getElementById("emailSearch");
+    const selectedEmails = document.getElementById("selectedEmails");
+         
+
+    function initializeShareModal(filePath) {
+        shareModal.classList.remove('hidden');
+        localStorage.setItem("sharing_link", filePath);
+    }
+
+    // Close the modal when the "Cancel" button is clicked
+    cancelBtn.addEventListener('click', () => {
+        // Clear selected emails and close modal
+        selectedEmails.innerHTML = '';
+        shareModal.classList.add('hidden');
+        localStorage.removeItem("sharing_link");
+    });
+
+    // Handle selecting emails and adding them to the list
+    emailSearch.addEventListener('change', () => {
+        const email = emailSearch.value;
+        const today = new Date();
+        const futureDate = new Date(today.setDate(today.getDate() + 7));
+        const dateString = futureDate.toISOString().split('T')[0];  // Format as YYYY-MM-DD
+
+        if (email && !isEmailAlreadySelected(email)) {
+            const emailDiv = document.createElement('div');
+            emailDiv.classList.add('flex', 'items-center', 'mb-2');
+
+            const emailText = document.createElement('span');
+            emailText.classList.add('text-gray-700');
+            emailText.textContent = email;
+
+            const dateInput = document.createElement('input');
+            dateInput.type = 'date';
+            dateInput.value = dateString;
+            dateInput.classList.add('ml-2', 'border', 'rounded', 'p-1');
+
+            emailDiv.appendChild(emailText);
+            emailDiv.appendChild(dateInput);
+            selectedEmails.appendChild(emailDiv);
+        }
+
+        emailSearch.value = ''; // Clear the search input after selection
+    });
+
+    // Check if the email is already in the list of selected emails
+    function isEmailAlreadySelected(email) {
+        const emailDivs = selectedEmails.getElementsByClassName('flex');
+        for (let div of emailDivs) {
+            if (div.textContent.includes(email)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Handle the final "Share" button click
+    shareFinalBtn.addEventListener('click', () => {
+        const emailDivs = selectedEmails.getElementsByClassName('flex');
+        const shareData = [];
+
+        for (let div of emailDivs) {
+            const email = div.querySelector('span').textContent;
+            const date = div.querySelector('input').value;
+            
+            const option = document.querySelector(`option[value="${email}"]`);
+            const id = option ? option.id : null; // Get the ID of the selected email
+
+            if (id) {
+                shareData.push({ email: email, id: id, expire_date: date });
+            }
+        }
+
+        if (shareData.length > 0) {
+            // Send the share data to the server (e.g., via a POST request)
+            const sharing_link = localStorage.getItem("sharing_link");
+            fetch('{{ url_for("share_file") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ file_path: sharing_link, shared_data: shareData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert("File shared successfully!");
+                // Optionally, clear and close the modal after sharing
+                selectedEmails.innerHTML = '';
+                shareModal.classList.add('hidden');
+            })
+            .catch(error => {
+                alert("Error sharing file.");
+            });
+        } else {
+            alert("Please select at least one email.");
+        }
+    });
 </script>
 {% endblock %}
 {% endblock %}

@@ -8,6 +8,7 @@
     <table class="shadow border-collapse border border-gray-800 w-full">
         <thead>
             <tr class="bg-gray-100 border-b">
+                <th class="py-2 px-4 text-left text-gray-700">Id</th>
                 <th class="py-2 px-4 text-left text-gray-700">Email</th>
                 <th class="py-2 px-4 text-left text-gray-700">Password</th>
                 <th class="py-2 px-4 text-left text-gray-700">Account Status</th>
@@ -17,6 +18,7 @@
         <tbody>
             {% for user in users %}
             <tr class="border-b">
+                <td class="py-2 px-4 text-gray-900">{{ user[0] }}</td>
                 <td class="py-2 px-4 text-gray-900">{{ user[1] }}</td>
                 <td class="py-2 px-4 text-gray-900" data-password={{ user[2] }}>{{user[2]}}</td>
                 <td class="py-2 px-4 text-gray-900" >{{user[3]}}</td>
@@ -67,6 +69,41 @@
                     <form method="POST" action="{{ url_for('reject_user', user_id=applicant[0]) }}" style="display:inline;">
                         <button type="submit" class="shadow appearance-none border rounded bg-red-500 text-white py-2 px-4 mb-3 leading-tight hover:bg-red-600 focus:outline-none focus:shadow-outline">
                             Reject
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <br><br>
+
+    <h2>Shared Files</h2>
+    <table class="shadow border-collapse border border-gray-800 w-full">
+        <thead>
+            <tr class="bg-gray-100 border-b">
+                <th class="py-2 px-4 text-left text-gray-700">From email</th>
+                <th class="py-2 px-4 text-left text-gray-700">To email</th>
+                <th class="py-2 px-4 text-left text-gray-700">File Path</th>
+                <th class="py-2 px-4 text-left text-gray-700">Shared Type</th>
+                <th class="py-2 px-4 text-left text-gray-700">Expire Date</th>
+                <th class="py-2 px-4 text-left text-gray-700">Delete</th>
+
+            </tr>
+        </thead>
+        <tbody>
+            {% for file in shared_files %}
+            <tr class="border-b">
+                <td class="py-2 px-4 text-gray-900">{{ file[1] }}</td>
+                <td class="py-2 px-4 text-gray-900">{{ file[2] }}</td>
+                <td class="py-2 px-4 text-gray-900">{{ file[3] }}</td>
+                <td class="py-2 px-4 text-gray-900">{{ file[4] }}</td>
+                <td class="py-2 px-4 text-gray-900">{{ file[5] }}</td>
+                <td class="py-2 px-4">
+                    <form method="POST" action="{{ url_for('delete_shared_link', shared_id=file[0]) }}" style="display:inline;">
+                        <button type="submit" class="shadow appearance-none border rounded bg-red-500 text-white py-2 px-4 mb-3 leading-tight hover:bg-red-600 focus:outline-none focus:shadow-outline">
+                            Delete
                         </button>
                     </form>
                 </td>

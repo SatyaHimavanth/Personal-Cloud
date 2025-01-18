@@ -24,6 +24,11 @@
                     </a>
                 </div>
                 {% if current_user.is_authenticated %}
+                <div class="flex space-x-7">
+                    <a href="{{ url_for('shared') }}" class="flex items-center py-4 px-2">
+                        <span class="font-semibold text-gray-500 text-lg">Shared Files</span>
+                    </a>
+                </div>
                 <div class="flex items-center space-x-3">
                     <span class="text-gray-500">{{ current_user.email }}</span>
                     <a href="{{ url_for('logout') }}" class="py-2 px-4 bg-red-500 text-white rounded hover:bg-red-600 transition duration-300">Logout</a>

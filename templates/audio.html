@@ -1,22 +1,147 @@
 {% extends "base.html" %}
-{% block title %}Playing {{ filename }} - File Hosting{% endblock %}
 
 {% block content %}
-<div class="max-w-2xl mx-auto bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4 text-center">
-    <h3 class="text-lg font-medium text-gray-700 mb-4">{{ filename }}</h3>
-    <audio controls class="w-full">
-        <source src="{{ audio_url }}" type="audio/mpeg">
-        Your browser does not support the audio element.
-    </audio>
-    <div class="flex justify-between items-center mt-4">
-        <a href="javascript:history.back();" class="text-blue-600 hover:text-blue-900">Go Back</a>
-        
-        <button onclick="window.location.href='{{ url_for('download_file_view', filepath=request.path[1:]) }}'"
-            class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700">
-            Download Audio
-        </button>
-        
-        <a href="{{ url_for('index') }}" class="text-blue-500 hover:text-blue-700">Back to Home</a>
+<div class="container mt-4">
+    <h2>{{ filename }}</h2>
+    <div class="card">
+        <div class="card-body">
+            <audio controls class="w-100 mb-3">
+                <source src="{{ audio_url }}" type="audio/mpeg">
+                Your browser does not support the audio element.
+            </audio>
+            <div class="d-flex justify-content-between">
+                <a href="{{ audio_url }}" download class="btn btn-primary">Download</a>
+                <button class="btn btn-success" onclick="initializeShareModal('{{ audio_url }}'); $('#shareModal').modal('show');">Share</button>
+            </div>
+        </div>
     </div>
 </div>
+
+<!-- Modal for sharing -->
+<div id="shareModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex justify-center items-center">
+    <div class="bg-white rounded-lg p-6 max-w-md w-full">
+        <h3 class="text-lg font-semibold mb-4">Share with Others</h3>
+        
+        <div class="mb-4">
+            <label for="emailSearch" class="block text-sm text-gray-700">Select Email</label>
+            <input list="emailList" id="emailSearch" name="email" class="mt-1 p-2 border rounded w-full" placeholder="Search Email" />
+            <datalist id="emailList">
+                {% for user in users %}
+                    <option id="{{user[0]}}" value="{{user[1]}}">
+                {% endfor %}
+            </datalist>
+        </div>
+
+        <div id="selectedEmails" class="mb-4">
+            <!-- List of selected emails will appear here -->
+        </div>
+
+        <div class="flex justify-between mt-4">
+            <button id="cancelBtn" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">Cancel</button>
+            <button id="shareFinalBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700">Share</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Get modal elements
+    const shareBtn = document.getElementById("shareBtn");
+    const shareModal = document.getElementById("shareModal");
+    const cancelBtn = document.getElementById("cancelBtn");
+    const shareFinalBtn = document.getElementById("shareFinalBtn");
+    const emailSearch = document.getElementById("emailSearch");
+    const selectedEmails = document.getElementById("selectedEmails");
+
+    // Show the modal when the "Share" button is clicked
+    shareBtn.addEventListener('click', () => {
+        shareModal.classList.remove('hidden');
+    });
+
+    // Close the modal when the "Cancel" button is clicked
+    cancelBtn.addEventListener('click', () => {
+        // Clear selected emails and close modal
+        selectedEmails.innerHTML = '';
+        shareModal.classList.add('hidden');
+    });
+
+    // Handle selecting emails and adding them to the list
+    emailSearch.addEventListener('change', () => {
+        const email = emailSearch.value;
+        const today = new Date();
+        const futureDate = new Date(today.setDate(today.getDate() + 7));
+        const dateString = futureDate.toISOString().split('T')[0];  // Format as YYYY-MM-DD
+
+        if (email && !isEmailAlreadySelected(email)) {
+            const emailDiv = document.createElement('div');
+            emailDiv.classList.add('flex', 'items-center', 'mb-2');
+
+            const emailText = document.createElement('span');
+            emailText.classList.add('text-gray-700');
+            emailText.textContent = email;
+
+            const dateInput = document.createElement('input');
+            dateInput.type = 'date';
+            dateInput.value = dateString;
+            dateInput.classList.add('ml-2', 'border', 'rounded', 'p-1');
+
+            emailDiv.appendChild(emailText);
+            emailDiv.appendChild(dateInput);
+            selectedEmails.appendChild(emailDiv);
+        }
+
+        emailSearch.value = ''; // Clear the search input after selection
+    });
+
+    // Check if the email is already in the list of selected emails
+    function isEmailAlreadySelected(email) {
+        const emailDivs = selectedEmails.getElementsByClassName('flex');
+        for (let div of emailDivs) {
+            if (div.textContent.includes(email)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Handle the final "Share" button click
+    shareFinalBtn.addEventListener('click', () => {
+        const emailDivs = selectedEmails.getElementsByClassName('flex');
+        const shareData = [];
+
+        for (let div of emailDivs) {
+            const email = div.querySelector('span').textContent;
+            const date = div.querySelector('input').value;
+            
+            const option = document.querySelector(`option[value="${email}"]`);
+            const id = option ? option.id : null; // Get the ID of the selected email
+
+            if (id) {
+                shareData.push({ email: email, id: id, expire_date: date });
+            }
+        }
+
+        if (shareData.length > 0) {
+            // Send the share data to the server (e.g., via a POST request)
+            fetch('{{ url_for("share_file") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ file_path: "{{ sharing_link }}", shared_data: shareData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert("File shared successfully!");
+                // Optionally, clear and close the modal after sharing
+                selectedEmails.innerHTML = '';
+                shareModal.classList.add('hidden');
+            })
+            .catch(error => {
+                alert("Error sharing file.");
+            });
+        } else {
+            alert("Please select at least one email.");
+        }
+    });
+</script>
 {% endblock %}
